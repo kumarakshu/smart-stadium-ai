@@ -1,0 +1,10 @@
+# .gcloudignore - Specifies files to be ignored by gcloud
+# By existing, gcloud will no longer fall back to .gitignore!
+
+.git
+node_modules/
+.env
+*.pem
+.DS_Store
+
+# Explicitly NOT ignoring src/data/config.js so it gets deployed to the live server!
