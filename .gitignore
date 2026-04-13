@@ -6,6 +6,7 @@ package-lock.json
 .env
 *.pem
 src/data/config.js
+data/config.js
 
 # OS generated files
 .DS_Store
