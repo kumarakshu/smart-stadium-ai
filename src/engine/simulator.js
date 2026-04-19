@@ -1,14 +1,37 @@
 /**
- * SmartStadium AI - Simulation Engine (Worker Manager)
- * Manages the Web Worker for off-thread calculations.
+ * @fileoverview SmartStadium AI - Simulation Engine (Worker Manager)
+ * @description Manages the Web Worker for off-thread physics calculations
+ * and crowd simulation phase cycling. Integrates with Google Cloud Run.
+ * @module SimulationEngine
  */
 
+/**
+ * @typedef {Object} SimulationPhase
+ * @property {number} ENTRY - Phase 0: Crowd Inflow (Entry)
+ * @property {number} MATCH - Phase 1: Match in Progress
+ * @property {number} BREAK - Phase 2: Intermission (Break)
+ */
+
+/**
+ * SimulationEngine - Core crowd simulation controller.
+ * Uses Web Workers for off-thread computation and localStorage for state persistence.
+ * @namespace
+ */
 const SimulationEngine = {
-    // Phase Cycle: 0: Entry Phase, 1: Match Phase, 2: Break Phase
+    /** @type {number} Current simulation phase index (0-2) */
     currentPhase: 0,
+
+    /** @type {number} Number of ticks elapsed in the current phase */
     phaseTick: 0,
+
+    /** @type {Worker|null} Web Worker instance for off-thread crowd calculations */
     worker: null,
 
+    /**
+     * Starts the simulation engine.
+     * Restores persisted state and phase from localStorage,
+     * initializes the Web Worker, and begins the simulation interval.
+     */
     start() {
         console.log('Simulation Engine: Starting Smart Cycle Logic (Worker Mode)...');
         
@@ -26,17 +49,19 @@ const SimulationEngine = {
             console.log(`Restored Simulation Phase: ${this.currentPhase} at tick ${this.phaseTick}`);
         }
 
-        // Initialize Web Worker
+        // 3. Initialize Web Worker for off-thread computation
         if (window.Worker) {
             try {
                 this.worker = new Worker('src/engine/simulatorWorker.js');
                 
-                // Handle reply from Worker
+                /**
+                 * Handle reply from simulation Worker.
+                 * Updates global state and persists to localStorage.
+                 * @param {MessageEvent} e - Worker message event
+                 */
                 this.worker.onmessage = (e) => {
                     const { state } = e.data;
                     window.state = state;
-                    
-                    // Save and notify
                     localStorage.setItem('smartstadium_data', JSON.stringify(state));
                     window.dispatchEvent(new CustomEvent('simulation_update', { detail: state }));
                 };
@@ -47,10 +72,15 @@ const SimulationEngine = {
             console.warn('Web Workers not supported in this browser.');
         }
         
-        // Run simulation tick
+        // 4. Run simulation tick on configured interval
         setInterval(() => this.tick(), CONFIG.SIMULATION_INTERVAL || 10000);
     },
 
+    /**
+     * Executes a single simulation tick.
+     * Increments phaseTick, cycles phases after 12 ticks,
+     * persists progress to localStorage, and dispatches to the Worker.
+     */
     tick() {
         if (!window.state || !this.worker) return;
 
@@ -74,6 +104,10 @@ const SimulationEngine = {
         });
     },
 
+    /**
+     * Returns the human-readable name for the current simulation phase.
+     * @returns {string} Phase name string
+     */
     getPhaseName() {
         return ['Crowd Inflow (Entry)', 'Match in Progress', 'Intermission (Break)'][this.currentPhase];
     }

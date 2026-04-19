@@ -1,11 +1,28 @@
 /**
- * SmartStadium AI - Assistant Controller (Context-Aware)
- * Orchestrates Gemini AI with live stadium business logic.
+ * @fileoverview SmartStadium AI - Assistant Controller (Context-Aware)
+ * @description Orchestrates Gemini AI with live stadium business logic.
+ * Uses Google Generative Language API (Gemini 1.5 Flash) for AI responses
+ * and falls back to a rule-based intent engine for offline resilience.
+ * @module AssistantController
  */
 
+/**
+ * AssistantController - AI assistant orchestration module.
+ * Integrates Gemini AI for natural language responses with a
+ * comprehensive fallback engine for offline/error scenarios.
+ * Supports voice input/output via Web Speech API.
+ * @namespace
+ */
 const AssistantController = {
+    /** @type {string} Google Generative Language API endpoint */
     API_URL: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent',
 
+    /**
+     * Gets an AI response for the given user query.
+     * Uses Gemini AI if API key is configured; falls back to rule-based engine.
+     * @param {string} query - The user's natural language query
+     * @returns {Promise<string>} The AI or fallback response text
+     */
     async getResponse(query) {
         const state = window.state;
         const currentId = document.getElementById('stadium-select')?.value || 'ahmedabad';
@@ -69,9 +86,17 @@ const AssistantController = {
         }
     },
 
+    /** @type {boolean} Whether voice output is enabled */
     voiceEnabled: false,
+
+    /** @type {SpeechRecognition|null} Active speech recognition instance */
     recognition: null,
 
+    /**
+     * Speaks the given text using the Web Speech API.
+     * Selects the best available English voice automatically.
+     * @param {string} text - The text to synthesize
+     */
     speak(text) {
         if (!window.speechSynthesis) return;
         window.speechSynthesis.cancel();
@@ -84,6 +109,12 @@ const AssistantController = {
         window.speechSynthesis.speak(utterance);
     },
 
+    /**
+     * Starts listening for voice input using the Web Speech API.
+     * @param {Function|null} onResult - Callback with transcript string on success
+     * @param {Function|null} onError - Callback with error string on failure
+     * @param {Function|null} onEnd - Callback when recognition ends
+     */
     listen(onResult, onError, onEnd) {
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         if (!SpeechRecognition) {
@@ -114,6 +145,15 @@ const AssistantController = {
         this.recognition.start();
     },
 
+    /**
+     * Rule-based fallback engine for handling queries without AI.
+     * Covers crowd flow, food, washrooms, medical, and parking intents
+     * with Hinglish keyword support.
+     * @param {string} query - The user's query
+     * @param {Object} state - Current global application state
+     * @param {Object|null} stadium - Current stadium object
+     * @returns {string} Fallback response text
+     */
     fallback(query, state, stadium) {
         const q = query.toLowerCase();
         if (state?.emergency?.active) return '🚨 EMERGENCY: Please follow the red pulse paths on your map for the safest exit.';
