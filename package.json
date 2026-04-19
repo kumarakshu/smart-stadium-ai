@@ -4,7 +4,8 @@
   "description": "Google Antigravity Challenge - Top 10 Entry",
   "main": "src/main.js",
   "scripts": {
-    "test": "jest --coverage --passWithNoTests"
+    "test": "jest --coverage --passWithNoTests",
+    "lint": "eslint \"src/**/*.js\""
   },
   "keywords": [
     "antigravity",

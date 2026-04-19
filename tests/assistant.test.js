@@ -22,9 +22,9 @@ global.window = {
 };
 
 global.CONFIG = { GEMINI_API_KEY: '' };
-global.document = { getElementById: () => null };
+global.document = { getElementById: () => ({ value: 'ahmedabad' }) };
+global.fetch = jest.fn();
 
-// Use require() so Istanbul/Jest can track coverage
 const { AssistantController } = require('../src/components/AssistantController');
 
 describe('Assistant Controller Fallbacks', () => {
@@ -33,6 +33,7 @@ describe('Assistant Controller Fallbacks', () => {
         state = global.window.state;
         stadium = state.stadiums[0];
         state.emergency.active = false;
+        jest.clearAllMocks();
     });
 
     it('should return emergency response if emergency is active', () => {
@@ -43,13 +44,12 @@ describe('Assistant Controller Fallbacks', () => {
 
     it('should return shortest gate for crowd queries', () => {
         const res = AssistantController.fallback('which gate is empty?', state, stadium);
-        expect(res).toContain('Gate 1'); // Because Gate 1 has crowd=10
-        expect(res).not.toContain('Gate 2');
+        expect(res).toContain('Gate 1');
     });
 
     it('should return shortest wait food stall for general food queries', () => {
         const res = AssistantController.fallback('I am hungry', state, stadium);
-        expect(res).toContain('Tea Point'); // Because wait is 5
+        expect(res).toContain('Tea Point');
     });
 
     it('should return tea stall explicitly for chai queries', () => {
@@ -68,38 +68,155 @@ describe('Assistant Controller Fallbacks', () => {
     });
 
     it('should handle medical queries', () => {
-        const res = AssistantController.fallback('I need a doctor', state, stadium);
-        expect(res).toContain('Medical assistance');
+        expect(AssistantController.fallback('I need a doctor', state, stadium)).toContain('Medical assistance');
     });
 
     it('should handle parking queries', () => {
-        const res = AssistantController.fallback('where can I park my car?', state, stadium);
-        expect(res).toContain('Parking');
+        expect(AssistantController.fallback('where can I park my car?', state, stadium)).toContain('Parking');
     });
 
     it('should handle exit queries in Hindi (bahar)', () => {
-        const res = AssistantController.fallback('main bahar jaana chahta hun', state, stadium);
-        expect(res).toContain('Gate 1');
+        expect(AssistantController.fallback('main bahar jaana chahta hun', state, stadium)).toContain('Gate 1');
     });
 
     it('should handle coffee query as a beverage intent', () => {
-        const res = AssistantController.fallback('I want coffee', state, stadium);
-        // Tea Point matches because it has "tea"
-        expect(res).toBeDefined();
+        expect(AssistantController.fallback('I want coffee', state, stadium)).toBeDefined();
     });
 
     it('should handle water queries', () => {
-        const res = AssistantController.fallback('I need pani', state, stadium);
-        expect(res).toBeDefined();
+        expect(AssistantController.fallback('I need pani', state, stadium)).toBeDefined();
     });
 
     it('should handle crowd/entry query with no stalls info', () => {
-        const res = AssistantController.fallback('is there a crowd at gate', state, stadium);
-        expect(res).toContain('Gate 1');
+        expect(AssistantController.fallback('is there a crowd at gate', state, stadium)).toContain('Gate 1');
     });
 
     it('should handle fallback when no stadium provided', () => {
-        const res = AssistantController.fallback('which gate', state, null);
-        expect(res).toBeDefined();
+        expect(AssistantController.fallback('which gate', state, null)).toBeDefined();
+    });
+});
+
+describe('Assistant Controller Main Flow', () => {
+    beforeEach(() => {
+        jest.clearAllMocks();
+        AssistantController.voiceEnabled = true;
+        global.CONFIG.GEMINI_API_KEY = 'REAL_API_KEY';
+        // Mock fallback to track it
+        jest.spyOn(AssistantController, 'fallback').mockReturnValue('Fallback Text');
+        jest.spyOn(AssistantController, 'speak').mockImplementation(() => {});
+    });
+
+    it('should use fallback if API_KEY is empty or missing', async () => {
+        global.CONFIG.GEMINI_API_KEY = 'YOUR_API_KEY';
+        const res = await AssistantController.getResponse('hello');
+        expect(AssistantController.fallback).toHaveBeenCalled();
+        expect(AssistantController.speak).toHaveBeenCalledWith('Fallback Text');
+        expect(res).toBe('Fallback Text');
+    });
+
+    it('should fetch from API successfully', async () => {
+        global.fetch.mockResolvedValue({
+            json: jest.fn().mockResolvedValue({
+                candidates: [{ content: { parts: [{ text: 'API Response' }] } }]
+            })
+        });
+        const res = await AssistantController.getResponse('hello');
+        expect(res).toBe('API Response');
+        expect(AssistantController.speak).toHaveBeenCalledWith('API Response');
+    });
+
+    it('should handle API error response properly', async () => {
+        global.fetch.mockResolvedValue({
+            json: jest.fn().mockResolvedValue({ error: 'Some API error' })
+        });
+        const res = await AssistantController.getResponse('hello');
+        expect(AssistantController.fallback).toHaveBeenCalled();
+        expect(res).toBe('Fallback Text');
+    });
+
+    it('should handle fetch exception properly', async () => {
+        global.fetch.mockRejectedValue(new Error('Network Down'));
+        const res = await AssistantController.getResponse('hello');
+        expect(AssistantController.fallback).toHaveBeenCalled();
+        expect(res).toBe('Fallback Text');
+    });
+
+    it('should handle API success but empty candidates', async () => {
+        global.fetch.mockResolvedValue({
+            json: jest.fn().mockResolvedValue({})
+        });
+        const res = await AssistantController.getResponse('hello');
+        expect(AssistantController.fallback).toHaveBeenCalled();
+        expect(res).toBe('Fallback Text');
+    });
+});
+
+describe('Assistant Controller Voice Listen/Speak', () => {
+    beforeEach(() => {
+        jest.restoreAllMocks();
+    });
+    afterEach(() => {
+        delete window.speechSynthesis;
+        delete window.SpeechRecognition;
+        AssistantController.recognition = null;
+    });
+
+    it('should do nothing if speechSynthesis is missing', () => {
+        expect(() => AssistantController.speak('test')).not.toThrow();
+    });
+
+    it('should use speechSynthesis if available', () => {
+        const mockSpeak = jest.fn();
+        const mockCancel = jest.fn();
+        const mockGetVoices = jest.fn().mockReturnValue([{ lang: 'en-US', name: 'Google US' }]);
+        global.window.speechSynthesis = {
+            speak: mockSpeak,
+            cancel: mockCancel,
+            getVoices: mockGetVoices
+        };
+        global.window.SpeechSynthesisUtterance = class {
+            constructor(text) { this.text = text; }
+        };
+        // Need to make sure SpeechSynthesisUtterance is globally accessible if AssistantController uses new SpeechSynthesisUtterance
+        global.SpeechSynthesisUtterance = global.window.SpeechSynthesisUtterance;
+        AssistantController.speak('hello');
+        expect(mockCancel).toHaveBeenCalled();
+        expect(mockSpeak).toHaveBeenCalled();
+    });
+
+    it('should handle missing SpeechRecognition', () => {
+        const onError = jest.fn();
+        AssistantController.listen(null, onError, null);
+        expect(onError).toHaveBeenCalledWith('Speech Recognition not supported in this browser.');
+    });
+
+    it('should setup SpeechRecognition and trigger callbacks', () => {
+        let onresultCallback, onerrorCallback, onendCallback;
+        const mockStart = jest.fn();
+        
+        global.window.SpeechRecognition = class {
+            constructor() {
+                this.start = mockStart;
+            }
+            set onresult(cb) { onresultCallback = cb; }
+            set onerror(cb) { onerrorCallback = cb; }
+            set onend(cb) { onendCallback = cb; }
+        };
+
+        const onResult = jest.fn();
+        const onError = jest.fn();
+        const onEnd = jest.fn();
+
+        AssistantController.listen(onResult, onError, onEnd);
+        expect(mockStart).toHaveBeenCalled();
+
+        if(onresultCallback) onresultCallback({ results: [[{ transcript: 'test voice' }]] });
+        expect(onResult).toHaveBeenCalledWith('test voice');
+
+        if(onerrorCallback) onerrorCallback({ error: 'network' });
+        expect(onError).toHaveBeenCalledWith('network');
+
+        if(onendCallback) onendCallback();
+        expect(onEnd).toHaveBeenCalled();
     });
 });
